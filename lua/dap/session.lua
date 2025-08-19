@@ -7,6 +7,7 @@ local breakpoints = require('dap.breakpoints')
 local progress = require('dap.progress')
 local log = require('dap.log').create_logger('dap.log')
 local repl = require('dap.repl')
+local go_errors = require("dap.go_errors")
 local sec_to_ms = 1000
 local non_empty = utils.non_empty
 local index_of = utils.index_of
@@ -312,6 +313,7 @@ function Session:event_initialized()
           utils.notify(tostring(err1), vim.log.levels.ERROR)
         end
         self.initialized = true
+        vim.fn.setqflist({}, "r", { items = {} })
       end)
     else
       self.initialized = true
@@ -806,6 +808,8 @@ function Session:event_output(body)
   end
   if body.category == 'telemetry' then
     log:info('Telemetry', body.output)
+  elseif body.category == "stderr" and self.config.type == "go" and not self.initialized then
+    go_errors.add_to_quickfix(self, vim.split(body.output, "\n"))
   else
     repl.append(body.output, '$', { newline = false })
   end
@@ -1606,6 +1610,9 @@ function Session.spawn(adapter, config, opts)
   stderr:read_start(function(err, chunk)
     assert(not err, err)
     if chunk then
+      if session.config.type == "go" and not session.initialized then
+        go_errors.add_to_quickfix(session, vim.split(chunk, "\n"))
+      end
       stderrlog:write(chunk)
     else
       stderr:close()
